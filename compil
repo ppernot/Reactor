@@ -1,0 +1,1 @@
+gfortran -fimplicit-none -O3 reactorGen.f90 irkc_m.f90 -o reactor
