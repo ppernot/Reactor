@@ -1,235 +1,23 @@
-MODULE define_IVP
-
-  IMPLICIT NONE
-  ! DX assigned a value in program that USEs define_IVP
-
-  ! Physical constants
-  real(8),parameter :: R = 8.3144621d0,          &  ! Universal gas constant (J.mol^-1.K^-1 = kg.m^2.s^-2.mol^-1.K^-1)
-                       Avogadro = 6.02214129d23, &  ! Avogadro constant
-                       pi = 3.14159265359,       &  ! pi
-                       conc_min = 1.d-30,        &  ! Treshold concentration
-                       infinity = huge(1.d0)
-
-  integer :: neqn !, indxCG
-
-  DOUBLE PRECISION :: advectionRate, dx, scaleFactor
-  real(8), allocatable, dimension(:) :: gasFlux, photonFlux !,molm,cd,if0
-
-  ! Sparse stoechiometry matrices and reaction rates
-  character*10, allocatable :: speciesList(:)
-  integer              :: nbSpecies, nbReac, nbPhotoReac,&
-                          spectrumRange(1:2)=(/ 50, 200 /),&
-                          sp1, sp2
-  integer, allocatable :: D(:,:), L(:,:), LL(:,:)
-  integer, allocatable :: Dphoto(:,:), Lphoto(:,:)
-  real*8 , allocatable :: reactionRates(:), Dk(:),&
-                          crossSections(:,:), photoRates(:), yloc(:)
-  real*8, allocatable  :: v(:), ly(:)
-  real*8, allocatable :: absorb(:,:), sumabs(:), intabs(:)
-
-CONTAINS
-
-  subroutine THRESH(Y)
-    integer :: i
-    real*8  :: Y(:)
-    do i = 1, size(Y)
-       Y(i) = max(Y(i),conc_min)
-    enddo
-  END subroutine THRESH
-
-  SUBROUTINE F_E(NEQN,T,Y,DY)
-    INTEGER, intent(in)  :: NEQN
-    real*8, intent(in)   :: T, Y(NEQN)
-    real*8, intent(out)  :: DY(NEQN)
-
-    call thresh(Y)
-
-    ! Restore real concentrations
-    yloc = y * scaleFactor
-    DY = 0
-
-    ! Photolysis
-    if (nbPhotoReac /= 0) call  PHOTO_KINET_SPARSE(yloc,DY)
-
-    ! Transport
-    DY = DY + ( gasFlux - advectionRate * yloc) / dx ! molec.cm^-3.s^-1
-    !+ cd*(conc0-conc(1:))/dx**2/2
-
-    ! Back to scaled concentrations
-    dy = dy / scaleFactor
-
-    !print *, 'F_E:',real(DY(1:10))
-   END SUBROUTINE F_E
-
-  DOUBLE PRECISION FUNCTION SR(NEQN,T,Y)
-    INTEGER, intent(in) :: NEQN
-    real*8, intent(in)  :: T, Y(NEQN)
-
-    SR = 4d0 / DX**2
-
-  END FUNCTION SR
-
-  SUBROUTINE PHOTO_KINET_SPARSE(y,dy)
-    real*8, intent(in)    :: y(:)
-    real*8, intent(inout) :: dy(:)
-    integer               :: imaxD, imaxL, ii, jj, i, j, k
-    real*8                :: vsum
-
-    imaxD  = size(Dphoto,1)
-    imaxL  = size(Lphoto,1)
-
-    absorb = 0d0
-    do i = 1, imaxL
-      ii = Lphoto(i,1)
-      absorb(ii,sp1:sp2) = crossSections(ii,sp1:sp2) * y(Lphoto(i,2))
-    enddo
-    do k = sp1, sp2
-      sumabs(k)=sum(absorb(1:nbPhotoReac,k))
-    end do
-    intabs = photonFlux * (1d0-exp(-sumabs*dx))/dx ! ph.cm^-3.s^-1
-    do k = sp1, sp2
-        if(sumabs(k) == 0) cycle
-        intabs(k) = intabs(k)/sumabs(k)
-    end do
-
-    photoRates = 0
-    do i = 1, imaxL
-      ii = Lphoto(i,1)
-      vsum=dot_product(intabs,absorb(ii,:))
-      photoRates(ii) = photoRates(ii) + vsum
-    enddo
-
-    do i = 1, imaxD
-       ii = Dphoto(i,2)
-       dy(ii) = dy(ii) + Dphoto(i,3) * photoRates(Dphoto(i,1))
-    enddo
-
-  END SUBROUTINE PHOTO_KINET_SPARSE
-
-  SUBROUTINE KINET_SPARSE(y,dy,want_jac,jac)
-  ! Adapted from Cangiani2012 : Biochemical Pathways Simulation
-  ! Dk = t(D*k) (done in calling program)
-  ! dC = Dk %*% apply(parms$L,1,function(x) prod(y^x))
-  ! NB: Dense matrices dimensions : reactions x species
-  ! NB: Description of sparse matrices D & L as triplets (reac:i,species:j,val)
-
-    real*8, intent(in)  :: y(:)
-    real*8, intent(out) :: dy(:)
-    logical, intent(in) :: want_jac
-    real*8, optional,&
-            intent(out) :: jac(:,:)
-
-    integer             :: imaxD, imaxL, imaxLL, ii, jj, i, j
-    real*8              :: tmp
-
-    imaxD  = size(D,1)
-    imaxL  = size(L,1)
-
-    ! v_Dense = L_Sparse %*% ly_Dense
-    ly = log(y)
-    v = 0
-    do i = 1, imaxL
-      ii = L(i,1)
-      v(ii) = v(ii) + L(i,3)*ly(L(i,2))
-    enddo
-    v = exp(v)
-
-    ! dy_Dense = Dk_Sparse %*% v_Dense
-    dy = 0
-    do i = 1, imaxD
-       ii = D(i,2)
-       dy(ii) = dy(ii) + Dk(i)*v(D(i,1))
-    enddo
-
-    if(want_jac) then ! Compute jacobian
-      jac = 0
-      do j = 1, size(y)
-        ! Contract L matrix
-
-        ! 1- select reactions involving species j
-        v = 0
-        do i = 1, imaxL
-          if (L(i,2) == j) then
-            ii = L(i,1)
-            v(ii) = v(ii) + 1
-          endif
-        enddo
-
-        ! 2- reduce L matrix according to v/=0
-        LL = 0
-        jj = 0
-        do i = 1, imaxL
-           ii = L(i,1)
-           if (v(ii) == 0) cycle
-           jj = jj + 1
-           LL(jj,:) = L(i,:)
-        enddo
-        imaxLL = jj
-
-        ! v_Dense = LL_Sparse %*% ly_Dense
-        v = 0
-        do i = 1, imaxLL
-          ii  = LL(i,1)
-          jj  = LL(i,2)
-          tmp = LL(i,3)
-          if(v(ii) == 0) v(ii) = 1 ! Leave to 0 unconcerned reactions
-          if(jj == j) then
-             v(ii) = v(ii) * tmp * y(jj)**(tmp-1)
-          else
-             v(ii) = v(ii) * y(jj)**tmp
-          endif
-        enddo
-
-        ! jac_Dense = Dk_Sparse %*% v_Dense
-        do i = 1, imaxD
-           ii = D(i,2)
-           jac(ii,j) = jac(ii,j) + Dk(i)*v(D(i,1))
-        enddo
-
-      enddo
-
-    endif
-
-  END SUBROUTINE KINET_SPARSE
-
-  SUBROUTINE F_I(GRID_POINT,NPDES,T,YG,DYG,WANT_JAC,JAC)
-    INTEGER, intent(in) :: GRID_POINT,NPDES
-    LOGICAL, intent(in) :: WANT_JAC
-    real*8, intent(in)  :: T, YG(NPDES)
-    real*8, intent(out) :: DYG(NPDES), JAC(NPDES,NPDES)
-
-    if (nbReac == 0) then
-      DYG=0
-      if(WANT_JAC) JAC = 0
-
-    else
-      call thresh(YG)
-      yloc = YG * scaleFactor
-      call  KINET_SPARSE(yloc,DYG,WANT_JAC,JAC)
-      dyg =  dyg / scaleFactor
-    endif
-!     print *, 'F_I:',real(DYG); stop
-
-  END SUBROUTINE F_I
-
-END MODULE define_IVP
 PROGRAM REACTOR
 
   USE define_IVP
   USE IRKC_M
 
-!  IMPLICIT NONE
+  IMPLICIT NONE
   ! Control parameters: Reactor geometry; T,P conditions; gas mixture...
-  character*20                :: runId, beamSpectrumFile
-  character*10, dimension(10) :: reactantsSpecies
-  real*8,       dimension(10) :: reactantsComposition
-  logical                     :: ifRestart=.FALSE., debug=.FALSE.
-  integer                     :: nbSnapshots
-  real*8                      :: reactorLength, reactorSection,&
-                                 beamSection, reactantsFlux,&
-                                 gasTemperature, electronsTemperature,&
-                                 totalPressure, reactantsPressure,&
-                                 reactionTime, beamIntensity
+  character*20                    :: runId, beamSpectrumFile
+  character*10, dimension(10)     :: reactantsSpecies
+  DOUBLE PRECISION, dimension(10) :: reactantsComposition
+  logical                         :: ifRestart=.FALSE., debug=.FALSE.
+  integer                         :: nbSnapshots
+  DOUBLE PRECISION                :: reactorLength,  reactorSection,       &
+                                     beamSection,    reactantsFlux,        &
+                                     gasTemperature, electronsTemperature, &
+                                     totalPressure,  reactantsPressure,    &
+                                     reactionTime,   beamIntensity,        &
+                                     relativeError = 1D-4,                 &
+                                     absoluteError = 1D-2,                 &
+                                     fTeps = 1D-14
 
   namelist /REAC_DATA/ runId, debug, ifRestart, nbSnapshots,&
                        beamSpectrumFile,&
@@ -241,20 +29,20 @@ PROGRAM REACTOR
                        gasTemperature, electronsTemperature,& ! K
                        totalPressure, reactantsPressure,&     ! Pa
                        reactionTime,&                         ! s
-                       reactantsSpecies,reactantsComposition
+                       reactantsSpecies,reactantsComposition, &
+                       relativeError, absoluteError, fTeps
 
 
   ! Integration parameters
   TYPE(IRKC_SOL) :: SOL
-  DOUBLE PRECISION,allocatable :: TOUT(:)
-  DOUBLE PRECISION    :: T0, TEND, DTOUT, TEPS, tau
-
+  DOUBLE PRECISION,allocatable  :: TOUT(:)
+  DOUBLE PRECISION              :: T0, TEND, DTOUT, TEPS, tau
   ! Misc variables
-  integer :: ngrid, i, next
-  real*8  :: pToConc
-  real*8, allocatable       :: Y0(:), initialConcentrations(:)
-  real*8, allocatable       :: speciesMass(:)
-  integer, allocatable      :: speciesCharge(:)
+  integer                       :: ngrid, i, next
+  DOUBLE PRECISION              :: pToConc
+  DOUBLE PRECISION, allocatable :: Y0(:), initialConcentrations(:)
+  DOUBLE PRECISION, allocatable :: speciesMass(:)
+  integer, allocatable          :: speciesCharge(:)
 
 
   ! Get control data ==================================================
@@ -277,18 +65,21 @@ PROGRAM REACTOR
 
   ! Integration time and log-scaled snapshots time ===================
   allocate(TOUT(nbSnapshots))
-  T0   = 0D0
-  TEND = reactionTime
-  TEPS = 1e-14*TEND   ! Shortest output time
-  DTOUT = log(TEND/TEPS) / (nbSnapshots-2)
-  TOUT(1)=T0
+  T0      = 0D0
+  TEND    = reactionTime
+  TEPS    = fTeps * TEND   ! Shortest output time
+  DTOUT   = log(TEND/TEPS) / (nbSnapshots-2)
+  TOUT(1) = T0
   DO I= 2, nbSnapshots
-     TOUT(I)= TEPS*exp((I-2)*DTOUT)
+     TOUT(I)= TEPS * exp((I-2)*DTOUT)
   ENDDO
 
   ! Open results file
   open(10,file='fracmol_out.dat')
   write(10,'(500a15)') 'Time', speciesList
+
+  ! Statistics file
+  open(11,file='integ_stats.out')
 
   ! ==================================================================
   ! Integration
@@ -297,29 +88,48 @@ PROGRAM REACTOR
   allocate( v(size(reactionRates)), ly(neqn) )
 
   ! Scale concentrations for numerical accurarcy
-  Y0 = initialConcentrations/scaleFactor
+  ! scaleFactor = 1D0
+  Y0 = initialConcentrations / scaleFactor
 
   NEXT = 1
-  WRITE(10,'(500E15.6e3)') TOUT(NEXT), Y0*scaleFactor
+  ! Output unscaled results
+  WRITE(10,*) TOUT(NEXT), Y0 * scaleFactor
 
-  DO NEXT = 2, nbSnapShots
+  DO NEXT = 2, nbSnapshots
+
     if(debug) print *,'Step #',NEXT,'/',nbSnapShots,'++++++++++++++++'
-    SOL = IRKC_SET(TOUT(NEXT-1),Y0,TOUT(NEXT),&
-                   AE=1D-12, RE=1D-8,&
-                   NPDES=nbSpecies,&
-                   ONE_STEP=.FALSE.)
-    CALL IRKC(SOL,F_E,F_I,SR)
+
+    SOL = IRKC_SET(TOUT(NEXT-1), Y0, TOUT(NEXT) , &
+                   AE            = absoluteError, &
+                   RE            = relativeError, &
+                   NPDES         = nbSpecies    , &
+                   ONE_STEP      = .FALSE.      , &
+                   STOP_ON_ERROR = .TRUE. )
+
+    CALL IRKC(SOL,F_E,F_I)
+
     Y0 = SOL%Y
-    call thresh(Y0)
-    WRITE(10,'(500E15.6e3)') TOUT(NEXT), Y0*scaleFactor
-  !     if(debug) CALL IRKC_STATS(SOL)
+
+    WRITE(10,*) TOUT(NEXT), Y0 * scaleFactor
+
+    !if(debug) CALL IRKC_STATS(SOL)
+    WRITE(11,*) SOL%T, SOL%NFE, SOL%NFI, SOL%NSTEPS, SOL%NACCPT, &
+                SOL%NREJCT, SOL%NFESIG, SOL%MAXM
+
   END DO
 
   CLOSE(10)
+  CLOSE(11)
+
+  ! Output Photolysis final rates
+  open(55,file='phrates.out')
+  write(55,*) photoRates
+  close(55)
 
   CONTAINS
 
     SUBROUTINE initGeometry
+      IMPLICIT NONE
 
       ! Grid geometry : box model
       dx = reactorLength
@@ -334,9 +144,10 @@ PROGRAM REACTOR
     END SUBROUTINE initGeometry
 
     SUBROUTINE initGasMixture
-      character*10 :: species
-      real*8       :: dummy
-      integer      :: indx 
+      IMPLICIT NONE
+      character*10     :: species
+      DOUBLE PRECISION :: dummy
+      integer          :: indx 
 
       ! Info about chemical species
       open(20, file = 'species_aux.dat', status = 'old')
@@ -356,7 +167,7 @@ PROGRAM REACTOR
 
       ! From pressure to concentration : n/V = P/(RT)
       pToConc = reactantsPressure / (R*gasTemperature) & ! P/RT : mol.m^-3
-                  * Avogadro / 1d6                         ! -> molec.cm^-3
+                  * Avogadro / 1D6                         ! -> molec.cm^-3
 
       if (ifRestart) then
         ! Restart from previous state
@@ -368,7 +179,7 @@ PROGRAM REACTOR
       else
         print *,'Gas Mixture **********************'
         ! Use initial composition and pressure to define conc. in molec.cm^-3
-        initialConcentrations = 0
+        initialConcentrations = 0D0
         do i= 1, size(reactantsSpecies)
           species = reactantsSpecies(i)
           if (species == '') exit
@@ -387,33 +198,34 @@ PROGRAM REACTOR
     END SUBROUTINE initGasMixture
 
     SUBROUTINE initFlow
-      character*10 :: species
-      real*8       :: reacTime, cFlux
-      integer      :: indx
+      IMPLICIT NONE
+      character*10     :: species
+      DOUBLE PRECISION :: reacTime, cFlux
+      integer          :: indx
 
       reactantsFlux = 1.689d-3 * reactantsFlux ! Convert sccm to Pa.m^3/s
-      cFlux = reactantsFlux *Avogadro / (R * gasTemperature * reactorSection) ! molec.cm^-2.s^-1
+      cFlux = reactantsFlux * Avogadro / (R * gasTemperature * reactorSection) ! molec.cm^-2.s^-1
 
       ! Advection rate / cm.s^-1
       advectionRate = cFlux / pToConc
-      tau = reactorLength/advectionRate
+      tau = reactorLength / advectionRate
 
       ! Max. integration time
-      if( reactionTime < 0 ) then
+      if( reactionTime < 0D0 ) then
         ! Use characteristic time, if not infinite
         if (tau > infinity) stop 'Please set a reaction time'
-        reactionTime = 5*tau
+        reactionTime = 5D0 * tau
       endif
 
       print *,'Advection ************************'
-      print *,'v_ad / cm.s^-1     =',real(advectionRate)
-      print *,'tau  / s           =',real(tau)
-      print *,'Integration time / s=',real(reactionTime)
+      print *,'v_ad / cm.s^-1       :',real(advectionRate)
+      print *,'tau  / s             :',real(tau)
+      print *,'Integration time / s :',real(reactionTime)
       print *,'**********************************'
 
       ! Molecular flux
       allocate(gasFlux(nbSpecies))
-      gasFlux = 0
+      gasFlux = 0D0
       print *,'Gas flow *************************'
       print *,'qre / mol.s^-1  =',real(cFlux/Avogadro*reactorSection)
       do i= 1, size(reactantsSpecies)
@@ -432,9 +244,10 @@ PROGRAM REACTOR
     END SUBROUTINE initFlow
 
     SUBROUTINE initPhotoChemistry
+      IMPLICIT NONE
       integer             :: imaxL, ii, jj, k, ios, nnz, nw
       integer             :: i, j, irate, imax, il
-      real*8              :: lambda, s
+      DOUBLE PRECISION    :: lambda, s
       character(len=100)  :: words(100), fname
       character(len=3000) :: line
 
@@ -458,7 +271,7 @@ PROGRAM REACTOR
       open(20, file = "photo_params.dat", status = "old")
       allocate(crossSections(nbPhotoReac,spectrumRange(1):spectrumRange(2)),&
                photoRates(nbPhotoReac) )
-      crossSections = 0
+      crossSections = 0D0
       do irate = 1, nbPhotoReac
         read( 20, '(a)', iostat = ios) line
 
@@ -471,7 +284,7 @@ PROGRAM REACTOR
         do
           read(21,*,iostat=ios) lambda, s ! nm, cm^2.molec-1.nm^-1
           if( ios/=0 ) exit
-          il = int(lambda+0.5)
+          il = int(lambda+0.5D0)
           if( il < spectrumRange(1) ) cycle
           if( il > spectrumRange(2) ) exit
           crossSections(irate,il) = s
@@ -484,7 +297,7 @@ PROGRAM REACTOR
           do
             read(21,*,iostat=ios) lambda, s ! nm, no unit
             if( ios/=0 ) exit
-            il = int(lambda+0.5)
+            il = int(lambda+0.5D0)
             if( il < spectrumRange(1) ) cycle
             if( il > spectrumRange(2) ) exit
            crossSections(irate,il) = crossSections(irate,il) * s
@@ -498,11 +311,11 @@ PROGRAM REACTOR
       ! Irradiation flux
       allocate(photonFlux(spectrumRange(1):spectrumRange(2)))
       open(20,file=beamSpectrumFile,status="old")
-      photonFlux = 0d0
+      photonFlux = 0D0
       do
         read(20,*,iostat=ios) lambda, s ! nm, ph.cm^-2.s^-1.nm^-1
         if( ios/=0 ) exit
-        il = int(lambda+0.5)
+        il = int(lambda+0.5D0)
         if( il < spectrumRange(1) ) cycle
         if( il > spectrumRange(2) ) exit
         photonFlux(il) = s
@@ -550,9 +363,10 @@ PROGRAM REACTOR
     END SUBROUTINE initPhotoChemistry
 
     SUBROUTINE initChemistry
-      integer :: i, j, nbSpec, irate, imax, ios, nnz, nw
-      real*8  :: tmp, k_para(20)
-      character*10 :: type = 'kooij'
+      IMPLICIT NONE
+      integer             :: i, j, nbSpec, irate, imax, ios, nnz, nw
+      DOUBLE PRECISION    :: tmp, k_para(20)
+      character*10        :: type = 'kooij'
       character(len=100)  :: words(100), fname
       character(len=3000) :: line
 
@@ -576,6 +390,7 @@ PROGRAM REACTOR
       nbReac = maxval(D(:,1))
 
       ! Reactions list
+      open(55,file='check_rrates.out')
       open(20, file = "reac_params.dat", status = "old")
       allocate(reactionRates(nbReac))
       do irate = 1, nbReac
@@ -613,11 +428,15 @@ PROGRAM REACTOR
 
         ! Calculate rate constant
         reactionRates(irate) = krate(type,k_para,tmp,pToConc)
-
+        write(55,*) type, reactionRates(irate)
+ 
       end do
+      close(55)
       close(20)
-      print *, real(pToConc)
+      ! print *, real(pToConc)
       print *, real(minval(reactionRates)),real(maxval(reactionRates))
+      
+  
       open(55,file='rrates.out')
       write(55,*) real(reactionRates)
       close(55)
@@ -631,6 +450,7 @@ PROGRAM REACTOR
     END SUBROUTINE initChemistry
 
     integer function speciesIndex(name_spec) result(no)
+      IMPLICIT NONE
       character(len=*) :: name_spec
 
       no = 1
@@ -649,11 +469,12 @@ PROGRAM REACTOR
       endif
     end function speciesIndex
 
-    real*8 function krate(type,c,T,P) result(k)
+    DOUBLE PRECISION function krate(type,c,T,P) result(k)
+      IMPLICIT NONE
       character(len=*)     :: type
-      real*8, dimension(:) :: c
-      real*8               :: T, F, k0, kInf, P
-      real*8, parameter    :: T0 = 300   ! Reference temp. for kooij expression
+      DOUBLE PRECISION, dimension(:) :: c
+      DOUBLE PRECISION               :: T, F, k0, kInf, P
+      DOUBLE PRECISION, parameter    :: T0 = 300D0 ! Reference temp. for kooij expression
 
       select case (type)
         case ('kooij', 'dr')
@@ -671,13 +492,13 @@ PROGRAM REACTOR
           k = troe(k0,kInf,P)
        
         case ('ionpol1')
-          k = c(1) * c(2) * (0.62 + 0.4767*c(3)*(T0/T)**0.5)
+          k = c(1) * c(2) * (0.62D0 + 0.4767D0*c(3)*sqrt(T0/T))
           F = c(4) * exp( c(5)*abs(1/T-1/T0) )
           k = k * F
 
         case ('ionpol2')
-          k = c(1) * c(2) * (1 + 0.0967*c(3)*(T0/T)**0.5 &
-                                  + c(3)**2 / 10.526 * T0/T   )
+          k = c(1) * c(2) * (1 + 0.0967*c(3)*sqrt(T0/T) &
+                                  + c(3)*c(3) / 10.526 * T0/T   )
           F = c(4) * exp( c(5)*abs(1/T-1/T0) )
           k = k * F
 
@@ -685,21 +506,22 @@ PROGRAM REACTOR
 
     end function krate
 
-    real*8 function troe(k0,kInf,P) result(k)
-	real*8               :: k0, kInf, P
-	real*8               :: cE, nE, dE, fE, Pr, Fc, lFc, c1
+    DOUBLE PRECISION function troe(k0,kInf,P) result(k)
+      IMPLICIT NONE
+	  DOUBLE PRECISION :: k0, kInf, P
+	  DOUBLE PRECISION :: cE, nE, dE, fE, Pr, Fc, lFc, c1
 
         ! Simplified Troe formula
-        Fc = 0.64
+        Fc = 0.64D0
 
         lFc= log10(Fc)
-        Pr = k0*P/kInf
+        Pr = k0 * P / kInf
 
-        cE = -0.4 -0.67*lFc
-        nE = 0.75 -1.27*lFc
-        dE = 0.14
-        c1 = log10(Pr)+cE
-        fE = 1+(c1/(nE-dE*c1))**2
+        cE = -0.4D0 -0.67D0*lFc
+        nE = 0.75D0 -1.27D0*lFc
+        dE = 0.14D0
+        c1 = log10(Pr) + cE
+        fE = 1 + (c1/(nE-dE*c1))**2
 
         k  = kInf * (Pr/(1+Pr)) * Fc**(1/fE)  
 

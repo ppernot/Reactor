@@ -1,3 +1,270 @@
+!------------------------------------------------------------------
+!
+! ABSTRACT:
+!
+! The Fortran 90 code IRKC is intended for the time integration of
+! systems of partial differential equations (PDEs) of diffusion-
+! reaction type for which the reaction Jacobian has real (negative)
+! eigenvalues. It is based on a family of implicit-explicit 
+! Runge-Kutta-Chebyshev methods which are unconditionally stable for 
+! reaction terms and which impose a stability constraint associated
+! with the diffusion terms that is quadratic in the number of stages.
+! Special properties of the family make it possible for the code to
+! select at each step the most efficient stable method as well as
+! the most efficient step size. Moreover, they make it possible to
+! apply the methods using just a few vectors of storage.
+! A further step towards minimal storage requirements and optimal
+! efficiency is achieved by exploiting the fact that the implicit
+! terms, originating from the stiff reactions, are not coupled over
+! the spatial grid points. Hence, the systems to be solved have a
+! small dimension (viz., equal to the number of PDEs). 
+! These characteristics of the code make it especially attractive 
+! for problems in several spatial variables.
+! IRKC is a successor to the RKC code (J. Comput. Appl. Math. 88 
+! (1997), pp. 315-326) that solves similar problems without
+! stiff reaction terms.
+!-------------------------------------------------------------------
+!
+! USAGE: 
+!
+! IRKC integrates equations of the form 
+!
+!   y'(t) = F_E(t,y) + F_I(t,y),                              (1)
+!
+! when the reactions described by the F_I term cause the ODEs to be
+! very stiff and the reaction Jacobian F'_I possesses a spectrum
+! that is both real and negative.
+! In IRKC, the term F_E is handled by a variant of the explicit 
+! methods of RKC and the term F_I is handled implicitly. Such 
+! schemes are known as IMEX methods. Implicit treatment of large
+! systems of ODEs can have serious implications for storage, so we
+! make assumptions about the structure of F_I that allow us to
+! solve a useful class of problems with minimal storage. We have in
+! mind systems of ODEs that arise from semi-discretization of
+! diffusion-reaction PDEs. We make no assumption about how the
+! discretization is done, but we do assume that the implicit terms
+! at one grid point are not coupled to those at other grid points.
+! This kind of decoupling arises naturally with finite differences,
+! finite volumes, and discontinuous Galerkin discretizations. To
+! take advantage of the great reductions in storage possible
+! because of this assumption and the numerical method employed,
+! the user must present the problem to the solver in an appropriate
+! way. If there are NPDES partial differential equations, each call
+! to the subroutine that evaluates F_I is made with a vector y of
+! NPDES components that correspond to a single grid point. On
+! demand the subroutine is also to evaluate the Jacobian of F_I, a
+! matrix that is only NPDES by NPDES.
+! ----------------------------------------------------------------
+!
+! SOFTWARE ISSUES:
+!
+! We have redesigned the user interface of RKC and exploited the
+! capabilities of Fortran 90 to make solving ODEs easier despite
+! solving a larger class of problems. We begin here with an outline
+! of the collection of programs that make up the package IRKC
+! and then provide some details. Fortran 90 makes it possible to
+! encapsulate all information about the solution as a single
+! structure of a derived type. This approach and the dynamic storage
+! facilities of Fortran 90 make it possible to relieve the user of
+! tedious details of allocating storage. The solution structure can
+! be called anything, but let us suppose that it is called SOL.
+! It must be declared as type IRKC_SOL. This structure and the 
+! computation itself are initialized by a call to a function
+! IRKC_SET. Among other things, the user must specify the initial
+! point and a final point in this call.  We exploit the possibility
+! in Fortran 90 of optional arguments so that the most common
+! options can be set by default. The integration is done by the
+! subroutine IRKC.  The default in IRKC_SET is for the integration
+! to proceed a step at a time, but optionally the solver can return
+! just the solution at the final point. After each step an
+! auxiliary function IRKC_VAL can be used to approximate the
+! solution anywhere in the span of the step. Statistics are
+! available directly in fields of the solution structure, but they
+! can all be displayed conveniently by calling the auxiliary
+! subroutine IRKC_STATS.
+!------------------------------------------------------------------
+!
+! FORM OF THE SOLUTION:
+!
+! The solution structure SOL is initialized by IRKC_SET. It is then
+! an input argument of the solver IRKC. If the integration is being
+! done a step at a time (the default), the SOL returned at one step
+! is input to IRKC for the next step. The solution structure has a
+! good many fields. The most interesting fields are the current
+! value of the independent variable, SOL%T, and the current
+! approximate solution, SOL%Y, a vector of NEQN components. The
+! logical quantity SOL%DONE is monitored to learn when the
+! integration is complete.
+! The methods of IRKC provide a solution between mesh points that
+! is evaluated in an auxiliary function. An approximate solution
+! YOUT at a point TOUT in the span of the last step is obtained by
+! YOUT = IRKC_VAL(SOL,TOUT). Some of the data held in fields of SOL
+! for this purpose might be of direct interest, viz., the current
+! approximation to the first derivative of the solution, SOL%YP,
+! and the size of the last step taken, SOL%HLAST.
+!
+! A convenient way to see all the statistics is to CALL
+! IRKC_STATS(SOL). Individual statistics are available as the
+! integer fields
+!
+! SOL%NFE    : number of evaluations of F_E,
+! SOL%NFI    : number of evaluations of F_I, 
+! SOL%NSTEPS : number of step,
+! SOL%NACCPT : number of accepted step,
+! SOL%NREJCT : number of rejected steps,
+! SOL%NFESIG : number of function evaluations used in estimating
+!              the spectral radius of F'_E,
+! SOL%MAXM   : maximum number of stages used.
+!-----------------------------------------------------------------
+!
+! SPECIFICATION OF THE TASK:
+!
+! Only a few quantities are required to specify the task and
+! initialize the integration. This is done with a call
+!
+!   SOL = IRKC_SET(T0,Y0,TEND).
+!
+! This says that the integration is to start at T0 with a vector Y0
+! of NEQN components as initial value and go to TEND.  It also says
+! that the solution structure is to be called SOL. These arguments
+! must appear, and in the order shown, but the remaining, optional
+! arguments can follow in any order because they are specified using
+! keywords. The solver must be told how many PDEs there are. This is
+! 1 by default and any other value must be supplied with the keyword
+! NPDES. For example, if there are 3 PDEs, the call above is changed
+! to
+!
+!   SOL = IRKC_SET(T0,Y0,TEND,NPDES=3).
+!
+! The most commonly used options are the error tolerances. RKC
+! provides for a scalar relative error tolerance and a vector of
+! absolute error tolerances. To leading order the storage required
+! is a multiple of NEQN. A guiding principle of RKC, and especially
+! IRKC, is minimize this multiple. Quite often users have scaled the
+! variables so that a scalar absolute error tolerance is
+! appropriate.  If not, they can always rescale the variables so as
+! to do away with the need for an array of NEQN absolute error
+! tolerances. Accordingly, we have chosen to implement only a scalar
+! absolute error tolerance in IRKC. This decision makes the solver
+! easier to use and simplifies the program. The default relative
+! error tolerance is 10^{-2} and the default absolute error
+! tolerance is 10^{-3}. The call just illustrated causes the
+! solver to use these default values. Other values are imposed with
+! the keywords RE and AE. For example, to use a relative error
+! tolerance of 10^{-3} and the default absolute error tolerance,
+! the call is changed to
+!
+!   SOL = IRKC_SET(T0,Y0,TEND,NPDES=3,RE=1D-3).
+!
+! By default IRKC takes one step at a time, but it can be instructed
+! to return only after reaching TEND by giving the keyword ONE_STEP
+! the value .FALSE. The methods for handling the explicit term F_E
+! involve an approximate bound on the spectral radius of the Jacobian
+! F'_E. This can be supplied with a function in a manner described
+! below, but the default is to have the solver compute a bound.
+! The cost of doing this can be reduced substantially when the
+! Jacobian is constant by giving the keyword CONSTANT_J the value
+! .TRUE. Sometimes it is useful to impose a maximum step size.
+! This is done with the keyword HMAX. IRKC selects an initial step
+! size automatically, but a value can be supplied with the keyword H0.
+!
+! It is sometimes useful to reset quantities and continue integrating.
+! This is done by replacing the initial data T0,Y0 in the call list of
+! IRKC_SET with the solution structure SOL. If the required argument
+! TEND or any of the optional arguments are changed, the new values
+! replace those stored in SOL and SOL%DONE is changed to .FALSE. 
+! Of course, NPDES cannot be changed. For example, we can instruct the
+! solver to quit returning at every step with
+!
+!   SOL = IRKC_SET(SOL,TEND,ONE_STEP=.FALSE.)
+!
+! and then call the solver again to continue on to TEND.
+!
+! Unless instructed to the contrary, the solver will print a message
+! and stop when a fatal error occurs. This response to a fatal error
+! can be changed with the optional argument STOP_ON_ERROR. Setting it
+! to .FALSE. will cause the solver to return with a positive value of
+! the integer SOL%ERR_FLAG that indicates the nature of the error.
+! In this way a user can prevent an unwelcome termination of the run.
+! Of course, if this report of a fatal error is ignored and the solver
+! is called again with a positive value of SOL%ERR_FLAG, it will print
+! a message and stop.
+!----------------------------------------------------------------------
+!
+! DEFINING THE EQUATIONS:
+!
+! The differential equations are supplied as subroutines to IRKC.  A
+! typical invocation of IRKC looks like
+!
+!   CALL IRKC(SOL,F_E,F_I).
+!
+! All three arguments in this call are required. The solution
+! structure SOL is used for both input and output. F_E is the name
+! of a subroutine for evaluating the explicit part of the right-hand
+! side of the system of ODEs in (1). It is supplied just as for RKC,
+! i.e., there is a subroutine of the form F_E(NEQN,T,Y,DY) that
+! accepts a vector Y of length NEQN, evaluates F_E(t,y), and
+! returns it as a vector DY of length NEQN.
+! As explained previously, the term to be handled implicitly must
+! be defined in a particular way that we now discuss more fully.
+!
+! Let NPDES be the number of PDEs. The ODEs must be coded in blocks
+! that correspond to grid points. Specifically,
+! for I = 1, NPDES+1, 2*NPDES+1, ..., NEQN-NPDES+1, the equations with
+! indices I, I+1, ..., I+NPDES-1 must correspond to a single grid point.
+! Accordingly there is to be a subroutine of the form
+! F_I(GRID_POINT,NPDES,T,YG,DYG,WANT_JAC,JAC). For an index
+! I = GRID_POINT, it evaluates F_I(T,YG) for YG = Y(I:I+NPDES-1).
+! This value is returned as a vector DYG of NPDES components.  The
+! solver also requires the Jacobian of this function, a matrix JAC of
+! NPDES by NPDES entries. It is convenient to have this computation in
+! the subroutine where F_I is evaluated, but it does not have to be
+! done every time that F_I is evaluated. The logical variable WANT_JAC
+! is used to inform the subroutine when JAC is to be formed along with
+! DYG.
+!
+! By default the solver approximates the spectral radius of the 
+! Jacobian F'_E using a nonlinear power method. This is convenient
+! and often works well, but it can fail. When it is not too much 
+! trouble to supply a function that returns an upper bound for this
+! spectral radius of roughly the correct size, this should be done
+! because the integration is then faster, more reliable, and uses
+! less storage. This function must have the form SR(NEQN,T,Y). Its
+! name is supplied to the solver as an optional fourth argument, but
+! in the circumstances there is no point to using a keyword, so the
+! call has the form
+!
+!   CALL IRKC(SOL,F_E,F_I,SR).
+!-------------------------------------------------------------------
+!
+!  Authors: L.F. Shampine
+!           Mathematics Department
+!           Southern Methodist University
+!           Dallas, Texas 75275-0156
+!           USA
+!           e-mail: lshampin@mail.smu.edu
+!
+!           B.P. Sommeijer and J.G. Verwer
+!           Centre for Mathematics and Computer Science (CWI)
+!           Kruislaan 413
+!           1098 SJ  Amsterdam
+!           The Netherlands
+!           e-mail: bsom@cwi.nl, Jan.Verwer@cwi.nl
+!
+!  Details of the methods used and the performance of IRKC can be
+!  found in 
+!
+!         L.F. Shampine. B.P. Sommeijer and J.G. Verwer
+!         IRKC: an IMEX Solver for Stiff Diffusion-Reaction PDEs.
+!
+!         J. Comput. Appl. Math. 196 (2006), pp. 485 - 497.
+!         Technical Report MAS-E0513, CWI, Amsterdam, 2005
+!         (http://db.cwi.nl/rapporten/index.php?jaar=2005&dept=13)  
+!
+!  This source code for IRKC and some examples can also be obtained
+!  by anonymous ftp from the address ftp://ftp.cwi.nl/pub/bsom/irkc.
+!---------------------------------------------------------------------
+
 MODULE IRKC_M
 
   IMPLICIT NONE
@@ -134,7 +401,7 @@ CONTAINS
 
       IF ((RTOL > 0.1D0) .OR. (RTOL < 10D0*UROUND)) THEN
         IF (STOP_ON_ERROR) THEN
-          sol%t=-1d0;return    !CALL REPORT_ERRORS(1)
+          CALL REPORT_ERRORS(1)
         ELSE
           SOL%ERR_FLAG = 1
           RETURN
@@ -143,7 +410,7 @@ CONTAINS
 
       IF (ATOL <= 0D0 ) THEN
         IF (STOP_ON_ERROR) THEN
-          sol%t=-1d0;return    !CALL REPORT_ERRORS(2)
+          CALL REPORT_ERRORS(2)
         ELSE
           SOL%ERR_FLAG = 2
           RETURN
@@ -155,7 +422,7 @@ CONTAINS
         ALLOCATE(EV(NEQN),STAT=IER)
         IF (IER /= 0) THEN
           IF (STOP_ON_ERROR) THEN
-            sol%t=-1d0;return    !CALL REPORT_ERRORS(7)
+            CALL REPORT_ERRORS(7)
           ELSE
             SOL%ERR_FLAG = 7
             RETURN
@@ -194,7 +461,7 @@ CONTAINS
                    SPRAD,RHO_CONVG_FAIL)
           IF (RHO_CONVG_FAIL) THEN
             IF (STOP_ON_ERROR) THEN
-              sol%t=-1d0;return    !CALL REPORT_ERRORS(4)
+              CALL REPORT_ERRORS(4)
             ELSE
               SOL%ERR_FLAG = 4
               RETURN
@@ -257,7 +524,7 @@ CONTAINS
                 IT_CONVG_FAIL,ERR_FLAG)
       IF (ERR_FLAG > 0) THEN
         IF (STOP_ON_ERROR) THEN
-          sol%t=-1d0;return    !CALL REPORT_ERRORS(ERR_FLAG)
+          CALL REPORT_ERRORS(ERR_FLAG)
         ELSE
           SOL%ERR_FLAG = ERR_FLAG
           RETURN
@@ -276,7 +543,7 @@ CONTAINS
                      SOL%YP,SOL%Y,SOL%YLAST,F_I,ERR,ERR_FLAG)
         IF (ERR_FLAG > 0) THEN
           IF (STOP_ON_ERROR) THEN
-            sol%t=-1d0;return    !CALL REPORT_ERRORS(ERR_FLAG)
+            CALL REPORT_ERRORS(ERR_FLAG)
           ELSE
             SOL%ERR_FLAG = ERR_FLAG
             RETURN
@@ -295,7 +562,7 @@ CONTAINS
         END IF
         IF (ABSH < HMIN) THEN
           IF (STOP_ON_ERROR) THEN
-            sol%t=-1d0;return    !CALL REPORT_ERRORS(3)
+            CALL REPORT_ERRORS(3)
           ELSE
             SOL%ERR_FLAG = 3
             RETURN
@@ -370,7 +637,7 @@ CONTAINS
       DEALLOCATE(EV,STAT=IER)
       IF (IER /= 0) THEN
         IF (STOP_ON_ERROR) THEN
-          sol%t=-1d0;return    !CALL REPORT_ERRORS(7)
+          CALL REPORT_ERRORS(7)
         ELSE
           SOL%ERR_FLAG = 7
           RETURN
