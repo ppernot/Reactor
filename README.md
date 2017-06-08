@@ -1,17 +1,11 @@
----
-title: Mode d'emploi de `reactor`
-output: 
-  html_document: 
-    number_sections: yes
-    theme: cerulean
----
+# Mode d'emploi de `reactor`
 
-# Compilation
+## Compilation
 
 
-# Utilisation
+## Utilisation
 
-## Arborescence de travail
+### Arborescence de travail
 
 * __ChemDBPublic__ contient les bases de données de référence pour la chimie et la photochimie
 * __Projects__ contient les projets (un répertoire par projet, contenant toutes les inputs et outputs pour ce projet). La structure de chaque projet est la suivante:
@@ -20,7 +14,7 @@ output:
     * __MC_Input__ : contient les bases de données pour le projet
     * __MC_Output__ : contient les fichiers de résultats du code
 
-## Créer un projet 
+### Créer un projet 
 
 Dans le répertoire __Projects__
 
@@ -35,15 +29,15 @@ Dans le répertoire __Projects__
 
 4. Editer le fichier `Run/control.dat` (paramètres du réacteur, du flux de photons, composition du mélange gazeux...)
 
-## Exécuter le code
+### Exécuter le code
 
 Ouvrir un terminal
 
-### Run nominal
+#### Run nominal
 1. Se placer dans le répertoire du projet
 2. Lancer la commande `./Scripts/OneRun_Loc.sh 0` (l'indice 0 réfère à la version nominale des bases de données de réactions)
 
-### Runs Monte Carlo
+#### Runs Monte Carlo
 1. Se placer dans le répertoire du projet
 2. Lancer la commande `./Scripts/OneRun_Loc.sh xxx`  où xxx est le nombre de runs souhaité. Le code fera le run nominal (indice 0) plus xxx runs aléatoires. Le nombre de runs demandé doit être inférieur ou égal au nombre d'échantillons dans __MC_Inputs__
 
