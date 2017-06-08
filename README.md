@@ -2,6 +2,28 @@
 
 ## Compilation
 
+`gfortran -O3 irkc_m.f90 define_ivp.f90 reactorGen.f90  -o reactor`
+
+* __irkc_m.f90__ : IRKC implicit-explicit integrator module     
+  L.F. Shampine. B.P. Sommeijer and J.G. Verwer (2006)   
+  _IRKC: an IMEX Solver for Stiff Diffusion-Reaction PDEs._    
+  J. Comput. Appl. Math. 196:485-497.    
+  (https://doi.org/10.1016/j.cam.2005.09.014)  
+  
+* __define_ivp.f90__ : module implementing the `FE` and `FI` 
+  gradient routines for IRKC using a sparse representation of 
+  the stoechiometry matrix following    
+  A. Cangiani (2012)    
+  _Biochemical pathways simulation._    
+  (https://arxiv.org/abs/1208.4222)
+
+* __reactorGen.f90__ : main program, described in    
+  Z. Peng, N. Carrasco and P. Pernot (2014)    
+  _Modeling of synchrotron-based laboratory simulations 
+  of Titan's ionospheric photochemistry._    
+  GeoResJ __1-2__:33-53    
+  (https://doi.org/10.1016/j.grj.2014.03.002)
+  
 
 ## Utilisation
 
