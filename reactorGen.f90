@@ -17,7 +17,7 @@ PROGRAM REACTOR
                                      reactionTime,   beamIntensity,        &
                                      relativeError = 1D-4,                 &
                                      absoluteError = 1D-2,                 &
-                                     fTeps = 1D-14
+                                     TEPS = 1D-10
 
   namelist /REAC_DATA/ runId, debug, ifRestart, nbSnapshots,&
                        beamSpectrumFile,&
@@ -30,13 +30,13 @@ PROGRAM REACTOR
                        totalPressure, reactantsPressure,&     ! Pa
                        reactionTime,&                         ! s
                        reactantsSpecies,reactantsComposition, &
-                       relativeError, absoluteError, fTeps
+                       relativeError, absoluteError
 
 
   ! Integration parameters
   TYPE(IRKC_SOL) :: SOL
   DOUBLE PRECISION,allocatable  :: TOUT(:)
-  DOUBLE PRECISION              :: T0, TEND, DTOUT, TEPS, tau
+  DOUBLE PRECISION              :: T0, TEND, DTOUT, tau
   ! Misc variables
   integer                       :: ngrid, i, next
   DOUBLE PRECISION              :: pToConc
@@ -67,7 +67,6 @@ PROGRAM REACTOR
   allocate(TOUT(nbSnapshots))
   T0      = 0D0
   TEND    = reactionTime
-  TEPS    = fTeps * TEND   ! Shortest output time
   DTOUT   = log(TEND/TEPS) / (nbSnapshots-2)
   TOUT(1) = T0
   DO I= 2, nbSnapshots
