@@ -61,12 +61,13 @@ Ouvrir un terminal
 
 #### Runs Monte Carlo
 1. Se placer dans le répertoire du projet
-2. Lancer la commande `./Scripts/OneRun_Loc.sh xxx`  où xxx est le nombre de runs souhaité. Le code fera le run nominal (indice 0) plus xxx runs aléatoires. Le nombre de runs demandé doit être inférieur ou égal au nombre d'échantillons dans __MC_Inputs__
+2. Lancer la commande `./Scripts/MCRun_Loc.sh xxx`  où xxx est le nombre de runs souhaité. Le code fera le run nominal (indice 0) plus xxx runs aléatoires. Le nombre de runs demandé doit être inférieur ou égal au nombre d'échantillons dans __MC_Inputs__
 
 ## Résultats
 Les résultats seront dans __MC_Outputs__:
 1. `fracmol_xxxx.dat` contient les concentrations des espèces en fonction du temps (xxxx est le numéro du run: 0000 pour nominal)
 2. `mc_rates_xxxx.dat` contient les constantes de vitesse dans les conditions du réacteur, pour le run xxxx.
+3. `photo_rates_xxxx.dat` contient les les constantes de photolyse dans les conditions du réacteur, pour le run xxxx.
 
 Pour traiter ces fichiers, on utilise des scripts R. Typiquement, dans Rstudio
 1. choisir le script à exécuter
