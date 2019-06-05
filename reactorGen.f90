@@ -407,6 +407,10 @@ PROGRAM REACTOR
             imax = 10
             tmp  = gasTemperature
 
+	  case ('assocVV','assocMD')
+            imax = 16
+            tmp  = gasTemperature
+
           case('dr')
             imax = 5
             tmp  = electronsTemperature
