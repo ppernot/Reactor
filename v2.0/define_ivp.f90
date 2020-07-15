@@ -1,4 +1,3 @@
-! v2.0
 MODULE define_IVP
 
   IMPLICIT NONE
@@ -100,23 +99,23 @@ CONTAINS
     do i = 1, imaxL
       ii = Lphoto(i,1)
       absorb(ii,sp1:sp2) = crossSections(ii,sp1:sp2) * & 
-                           y(Lphoto(i,2))  ! cm^-1
+                           y(Lphoto(i,2)) * &
+                           spectralResolution  ! cm^-1
     enddo
     do k = sp1, sp2
-      sumabs(k) = sum(absorb(1:nbPhotoReac,k)) 
+      sumabs(k) = sum(absorb(1:nbPhotoReac,k)) ! cm^-1
     end do
-    intabs = photonFlux * (1d0-exp(-sumabs*dx))/dx ! ph.cm^-3.s^-1.nm^-1
+    intabs = photonFlux * (1d0-exp(-sumabs*dx))/dx ! ph.cm^-3.s^-1
     do k = sp1, sp2
         if(sumabs(k) == 0D0) cycle
-        intabs(k) = intabs(k) / sumabs(k) ! ph.cm^-2.s^-1.nm^-1
+        intabs(k) = intabs(k) / sumabs(k) ! ph.cm^-2.s^-1
     end do
 
     photoRates = 0D0
     do i = 1, imaxL
       ii = Lphoto(i,1)
       photoRates(ii) = photoRates(ii) + &
-                       dot_product(intabs,absorb(ii,:)) * & 
-                       spectralResolution                   !cm^-3.s^-1
+                       dot_product(intabs,absorb(ii,:)) !cm^-3.s^-1
     enddo
 
     do i = 1, imaxD

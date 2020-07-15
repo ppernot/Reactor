@@ -1,20 +1,9 @@
-! v2.0
 PROGRAM REACTOR
 
   USE define_IVP
   USE IRKC_M
 
   IMPLICIT NONE
-
-  ! Declare the interface for POSIX fsync function
-            interface
-              function fsync (fd) bind(c,name="fsync")
-              use iso_c_binding, only: c_int
-                integer(c_int), value :: fd
-                integer(c_int) :: fsync
-              end function fsync
-            end interface
-
   ! Control parameters: Reactor geometry; T,P conditions; gas mixture...
   character*20                    :: runId, beamSpectrumFile
   character*10, dimension(10)     :: reactantsSpecies
@@ -50,7 +39,7 @@ PROGRAM REACTOR
   DOUBLE PRECISION,allocatable  :: TOUT(:)
   DOUBLE PRECISION              :: T0, TEND, DTOUT, tau
   ! Misc variables
-  integer                       :: ngrid, i, next, ret
+  integer                       :: ngrid, i, next
   DOUBLE PRECISION              :: pToConc
   DOUBLE PRECISION, allocatable :: Y0(:), initialConcentrations(:)
   DOUBLE PRECISION, allocatable :: speciesMass(:)
@@ -108,10 +97,7 @@ PROGRAM REACTOR
 
   DO NEXT = 2, nbSnapshots
 
-    if(debug) then
-      print *,'Step #',NEXT,'/',nbSnapShots,'++++++++++++++++'
-      FLUSH(6) ! For graphical interface
-    end if
+    if(debug) print *,'Step #',NEXT,'/',nbSnapShots,'++++++++++++++++'
 
     SOL = IRKC_SET(TOUT(NEXT-1), Y0, TOUT(NEXT) , &
                    AE            = absoluteError, &
@@ -126,17 +112,9 @@ PROGRAM REACTOR
 
     WRITE(10,*) TOUT(NEXT), Y0 * scaleFactor
 
-    FLUSH(10) ! For graphical interface
-    ret = fsync(fnum(10))
-    if (ret /= 0) stop "Error calling FSYNC on file 10"
-
     !if(debug) CALL IRKC_STATS(SOL)
     WRITE(11,*) SOL%T, SOL%NFE, SOL%NFI, SOL%NSTEPS, SOL%NACCPT, &
                 SOL%NREJCT, SOL%NFESIG, SOL%MAXM
-
-    FLUSH(11) ! For graphical interface
-    ret = fsync(fnum(11))
-    if (ret /= 0) stop "Error calling FSYNC on file 11"
 
   END DO
 
@@ -308,7 +286,7 @@ PROGRAM REACTOR
         read(words(1),*) fname ! File containing the cross-sections
         open(21,file='Photo/'//fname, status="old")
         do
-          read(21,*,iostat=ios) lambda, s ! nm, cm^2
+          read(21,*,iostat=ios) lambda, s ! nm, cm^2.molec-1.nm^-1
           if( ios/=0 ) exit
           il = int( (lambda+0.5*spectralResolution)/ &
                        spectralResolution             )
@@ -357,13 +335,10 @@ PROGRAM REACTOR
       close(55)
 
       ! Renormalization of spectrum
-      if(beamIntensity >= 0) photonFlux = photonFlux /&
-                                          (sum(photonFlux) * spectralResolution) *&
-                                          beamIntensity
+      if(beamIntensity >= 0) photonFlux = photonFlux/sum(photonFlux) * beamIntensity
 
       ! Redistribute beam intensity to reactorSection
       photonFlux = photonFlux * (beamSection/reactorSection)
-
       spF = sum(photonFlux) * spectralResolution
 
       print *,'Photons **************************'
@@ -385,7 +360,8 @@ PROGRAM REACTOR
       do i = 1, imaxL
         ii = Lphoto(i,1)
         absorb(ii,sp1:sp2) = crossSections(ii,sp1:sp2) * &
-                             initialConcentrations(Lphoto(i,2)) ! cm^-1
+                             initialConcentrations(Lphoto(i,2)) * &
+                             spectralResolution ! cm^-1
       enddo
       do k = sp1, sp2
         sumabs(k)=sum(absorb(1:nbPhotoReac,k))
@@ -395,13 +371,13 @@ PROGRAM REACTOR
       print *,'% absorbed (WIP!!!) ', (sum(1-exp(-sumabs*dx)))* 100 / & 
                               (spectrumRange(2)-spectrumRange(1)) ! ????
       print *,'**********************************'
-      
-      open(55, file='init_absorption.out')
+
+      open(55,file='init_absorption.out')
       do il = sp1, sp2
         write(55,*) real(il*spectralResolution), real(1-exp(-sumabs(il)*dx))
       enddo
       close(55)
-      
+
     END SUBROUTINE initPhotoChemistry
 
     SUBROUTINE initChemistry

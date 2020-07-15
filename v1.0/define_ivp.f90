@@ -1,17 +1,16 @@
-! v2.0
 MODULE define_IVP
 
   IMPLICIT NONE
   ! DX assigned a value in program that Uses define_IVP
 
   ! Physical constants
-  DOUBLE PRECISION,parameter :: R = 8.3144621D0, &  ! Universal gas constant
+  DOUBLE PRECISION,parameter :: R = 8.3144621d0, &  ! Universal gas constant
                                                     ! (J.mol^-1.K^-1 =
                                                     !  kg.m^2.s^-2.mol^-1.K^-1)
-                                Avogadro = 6.02214129D23, &  ! Avogadro constant
+                                Avogadro = 6.02214129d23, &  ! Avogadro constant
                                 pi = 3.14159265359, &  ! pi
                                 conc_min = 0.D0,    &  ! Treshold concentration
-                                infinity = huge(1.D0)
+                                infinity = huge(1.d0)
 
   integer :: neqn !, indxCG
 
@@ -21,9 +20,8 @@ MODULE define_IVP
   ! Sparse stoechiometry matrices and reaction rates
   character*10, allocatable      :: speciesList(:)
   integer                        :: nbSpecies, nbReac, nbPhotoReac,&
-                                    spectrumRange(1:2) = (/ 50, 200 /),&
+                                    spectrumRange(1:2)=(/ 50, 200 /),&
                                     sp1, sp2
-  DOUBLE PRECISION               :: spectralResolution = 1.D0
   integer, allocatable           :: D(:,:), L(:,:), LL(:,:)
   integer, allocatable           :: Dphoto(:,:), Lphoto(:,:)
   DOUBLE PRECISION , allocatable :: reactionRates(:), Dk(:),&
@@ -50,7 +48,7 @@ CONTAINS
     call thresh(Y)
     yloc = y * scaleFactor
 
-    DY = 0.D0
+    DY = 0D0
 
     ! Photolysis
     if (nbPhotoReac /= 0) call  PHOTO_KINET_SPARSE(yloc,DY)
@@ -99,24 +97,21 @@ CONTAINS
     absorb = 0D0
     do i = 1, imaxL
       ii = Lphoto(i,1)
-      absorb(ii,sp1:sp2) = crossSections(ii,sp1:sp2) * & 
-                           y(Lphoto(i,2))  ! cm^-1
+      absorb(ii,sp1:sp2) = crossSections(ii,sp1:sp2) * y(Lphoto(i,2))
     enddo
     do k = sp1, sp2
-      sumabs(k) = sum(absorb(1:nbPhotoReac,k)) 
+      sumabs(k) = sum(absorb(1:nbPhotoReac,k))
     end do
-    intabs = photonFlux * (1d0-exp(-sumabs*dx))/dx ! ph.cm^-3.s^-1.nm^-1
+    intabs = photonFlux * (1d0-exp(-sumabs*dx))/dx ! ph.cm^-3.s^-1
     do k = sp1, sp2
         if(sumabs(k) == 0D0) cycle
-        intabs(k) = intabs(k) / sumabs(k) ! ph.cm^-2.s^-1.nm^-1
+        intabs(k) = intabs(k) / sumabs(k)
     end do
 
     photoRates = 0D0
     do i = 1, imaxL
       ii = Lphoto(i,1)
-      photoRates(ii) = photoRates(ii) + &
-                       dot_product(intabs,absorb(ii,:)) * & 
-                       spectralResolution                   !cm^-3.s^-1
+      photoRates(ii) = photoRates(ii)+dot_product(intabs,absorb(ii,:))
     enddo
 
     do i = 1, imaxD

@@ -1,20 +1,9 @@
-! v2.0
 PROGRAM REACTOR
 
   USE define_IVP
   USE IRKC_M
 
   IMPLICIT NONE
-
-  ! Declare the interface for POSIX fsync function
-            interface
-              function fsync (fd) bind(c,name="fsync")
-              use iso_c_binding, only: c_int
-                integer(c_int), value :: fd
-                integer(c_int) :: fsync
-              end function fsync
-            end interface
-
   ! Control parameters: Reactor geometry; T,P conditions; gas mixture...
   character*20                    :: runId, beamSpectrumFile
   character*10, dimension(10)     :: reactantsSpecies
@@ -34,14 +23,13 @@ PROGRAM REACTOR
                        beamSpectrumFile,&
                        beamIntensity,&                        ! ph.cm^-2.s^-1
                        spectrumRange,&                        ! nm
-                       spectralResolution,&                   ! nm
                        reactorLength,&                        ! cm
                        reactorSection, beamSection,&          ! cm^2
                        reactantsFlux,&                        ! sccm
                        gasTemperature, electronsTemperature,& ! K
                        totalPressure, reactantsPressure,&     ! Pa
                        reactionTime,&                         ! s
-                       reactantsSpecies, reactantsComposition, &
+                       reactantsSpecies,reactantsComposition, &
                        relativeError, absoluteError
 
 
@@ -50,7 +38,7 @@ PROGRAM REACTOR
   DOUBLE PRECISION,allocatable  :: TOUT(:)
   DOUBLE PRECISION              :: T0, TEND, DTOUT, tau
   ! Misc variables
-  integer                       :: ngrid, i, next, ret
+  integer                       :: ngrid, i, next
   DOUBLE PRECISION              :: pToConc
   DOUBLE PRECISION, allocatable :: Y0(:), initialConcentrations(:)
   DOUBLE PRECISION, allocatable :: speciesMass(:)
@@ -99,7 +87,7 @@ PROGRAM REACTOR
   allocate( v(size(reactionRates)), ly(neqn) )
 
   ! Scale concentrations for numerical accurarcy
-  ! Defined in initGasMixture
+  ! scaleFactor = 1D0
   Y0 = initialConcentrations / scaleFactor
 
   NEXT = 1
@@ -108,10 +96,7 @@ PROGRAM REACTOR
 
   DO NEXT = 2, nbSnapshots
 
-    if(debug) then
-      print *,'Step #',NEXT,'/',nbSnapShots,'++++++++++++++++'
-      FLUSH(6) ! For graphical interface
-    end if
+    if(debug) print *,'Step #',NEXT,'/',nbSnapShots,'++++++++++++++++'
 
     SOL = IRKC_SET(TOUT(NEXT-1), Y0, TOUT(NEXT) , &
                    AE            = absoluteError, &
@@ -126,17 +111,9 @@ PROGRAM REACTOR
 
     WRITE(10,*) TOUT(NEXT), Y0 * scaleFactor
 
-    FLUSH(10) ! For graphical interface
-    ret = fsync(fnum(10))
-    if (ret /= 0) stop "Error calling FSYNC on file 10"
-
     !if(debug) CALL IRKC_STATS(SOL)
     WRITE(11,*) SOL%T, SOL%NFE, SOL%NFI, SOL%NSTEPS, SOL%NACCPT, &
                 SOL%NREJCT, SOL%NFESIG, SOL%MAXM
-
-    FLUSH(11) ! For graphical interface
-    ret = fsync(fnum(11))
-    if (ret /= 0) stop "Error calling FSYNC on file 11"
 
   END DO
 
@@ -269,7 +246,7 @@ PROGRAM REACTOR
       IMPLICIT NONE
       integer             :: imaxL, ii, jj, k, ios, nnz, nw
       integer             :: i, j, irate, imax, il
-      DOUBLE PRECISION    :: lambda, s, qy, spF
+      DOUBLE PRECISION    :: lambda, s
       character(len=100)  :: words(100), fname
       character(len=3000) :: line
 
@@ -289,13 +266,9 @@ PROGRAM REACTOR
       close(20)
       nbPhotoReac = maxval(Dphoto(:,1))
 
-      ! Vector limits
-      sp1 = int(spectrumRange(1)/spectralResolution)
-      sp2 = int(spectrumRange(2)/spectralResolution)
-
       ! Build partial cross sections
       open(20, file = "photo_params.dat", status = "old")
-      allocate(crossSections(nbPhotoReac,sp1:sp2),&
+      allocate(crossSections(nbPhotoReac,spectrumRange(1):spectrumRange(2)),&
                photoRates(nbPhotoReac) )
       crossSections = 0D0
       do irate = 1, nbPhotoReac
@@ -308,27 +281,25 @@ PROGRAM REACTOR
         read(words(1),*) fname ! File containing the cross-sections
         open(21,file='Photo/'//fname, status="old")
         do
-          read(21,*,iostat=ios) lambda, s ! nm, cm^2
+          read(21,*,iostat=ios) lambda, s ! nm, cm^2.molec-1.nm^-1
           if( ios/=0 ) exit
-          il = int( (lambda+0.5*spectralResolution)/ &
-                       spectralResolution             )
-          if( il < sp1 ) cycle
-          if( il > sp2 ) exit
+          il = int(lambda+0.5D0)
+          if( il < spectrumRange(1) ) cycle
+          if( il > spectrumRange(2) ) exit
           crossSections(irate,il) = s
         enddo
         close(21)
 
-        if( words(2) /= '') then ! Use branching ratios / quantum yields
+        if( words(2) /= '') then ! Use branching ratios
           read(words(2),*) fname ! File containing the BRs
           open(21,file='Photo/'//fname, status="old")
           do
-            read(21,*,iostat=ios) lambda, qy ! nm, no unit
+            read(21,*,iostat=ios) lambda, s ! nm, no unit
             if( ios/=0 ) exit
-            il = int( (lambda+0.5*spectralResolution)/ &
-                       spectralResolution               )
-            if( il < sp1 ) cycle
-            if( il > sp2 ) exit
-            crossSections(irate,il) = crossSections(irate,il) * qy
+            il = int(lambda+0.5D0)
+            if( il < spectrumRange(1) ) cycle
+            if( il > spectrumRange(2) ) exit
+           crossSections(irate,il) = crossSections(irate,il) * s
           enddo
           close(21)
         endif
@@ -337,46 +308,41 @@ PROGRAM REACTOR
       close(20)
 
       ! Irradiation flux
-      allocate(photonFlux(sp1:sp2))
+      allocate(photonFlux(spectrumRange(1):spectrumRange(2)))
       open(20,file=beamSpectrumFile,status="old")
       photonFlux = 0D0
       do
         read(20,*,iostat=ios) lambda, s ! nm, ph.cm^-2.s^-1.nm^-1
         if( ios/=0 ) exit
-        il = int( (lambda+0.5*spectralResolution)/ &
-                   spectralResolution                )
-        if( il < sp1 ) cycle
-        if( il > sp2 ) exit
+        il = int(lambda+0.5D0)
+        if( il < spectrumRange(1) ) cycle
+        if( il > spectrumRange(2) ) exit
         photonFlux(il) = s
       enddo
       close(20)
       open(55,file='photonFlux.out')
-      do il = sp1, sp2
-        write(55,*) real(il*spectralResolution),real(photonFlux(il))
-      enddo
+      write(55,*) real(photonFlux)
       close(55)
 
       ! Renormalization of spectrum
-      if(beamIntensity >= 0) photonFlux = photonFlux /&
-                                          (sum(photonFlux) * spectralResolution) *&
-                                          beamIntensity
+      if(beamIntensity >= 0) photonFlux = photonFlux/sum(photonFlux) * beamIntensity
 
       ! Redistribute beam intensity to reactorSection
       photonFlux = photonFlux * (beamSection/reactorSection)
 
-      spF = sum(photonFlux) * spectralResolution
 
       print *,'Photons **************************'
-      print *,'flux  / ph.cm^-2.s^-1 =',real(spF)
-      print *,'flux  / ph.s^-1       =',real(spF * reactorSection)
-      print *,'integ / ph            =',real(spF * reactorSection * reactionTime)
+      print *,'flux  / ph.cm^-2.s^-1 =',real(sum(photonFlux))
+      print *,'flux  / ph.s^-1       =',real(sum(photonFlux)*reactorSection)
+      print *,'integ / ph            =',real(sum(photonFlux)*reactorSection*reactionTime)
       print *,'**********************************'
 !       photonFlux=photonFlux/9.537**2 !*20.2 ! Titan
 !       photonFlux=0d0;photonFlux(82)=6.7d13*1d4/Avogadro    ! irradiation at 82 nm in Imanaka and Smith's reactor
 
       print *,'Absorption ***********************'
-      
-      imaxL  = size(Lphoto,1)    
+      imaxL  = size(Lphoto,1)
+      sp1 = spectrumRange(1)
+      sp2 = spectrumRange(2)
       ! Allcocate tables also used in PHOTO_KINET_SPARSE
       allocate(absorb(nbPhotoReac,sp1:sp2), &
                sumabs(sp1:sp2), &
@@ -385,23 +351,14 @@ PROGRAM REACTOR
       do i = 1, imaxL
         ii = Lphoto(i,1)
         absorb(ii,sp1:sp2) = crossSections(ii,sp1:sp2) * &
-                             initialConcentrations(Lphoto(i,2)) ! cm^-1
+                             initialConcentrations(Lphoto(i,2))
       enddo
       do k = sp1, sp2
         sumabs(k)=sum(absorb(1:nbPhotoReac,k))
       end do
-
-      !!! WORK A LITTLE MORE ON THAT !!! Mean of the absorption per wl ???
-      print *,'% absorbed (WIP!!!) ', (sum(1-exp(-sumabs*dx)))* 100 / & 
-                              (spectrumRange(2)-spectrumRange(1)) ! ????
+      print *,'% absorbed ', (sum(1-exp(-sumabs*dx)))* 100 / (sp2-sp1+1)
       print *,'**********************************'
-      
-      open(55, file='init_absorption.out')
-      do il = sp1, sp2
-        write(55,*) real(il*spectralResolution), real(1-exp(-sumabs(il)*dx))
-      enddo
-      close(55)
-      
+
     END SUBROUTINE initPhotoChemistry
 
     SUBROUTINE initChemistry

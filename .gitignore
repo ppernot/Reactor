@@ -2,6 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+*.html
 Reactor.Rproj
 UsageReactor.pdf
 define_ivp.mod

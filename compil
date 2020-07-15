@@ -1,1 +1,1 @@
-gfortran -O3 irkc_m.f90 define_ivp.f90 reactorGen.f90  -o reactor
+gfortran -O3 irkc_m.f90 define_ivp.f90 reactorGen.f90 -o reactor
