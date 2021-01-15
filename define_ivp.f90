@@ -18,6 +18,10 @@ MODULE define_IVP
   DOUBLE PRECISION                            :: advectionRate, dx, scaleFactor
   DOUBLE PRECISION, allocatable, dimension(:) :: gasFlux, photonFlux !,molm,cd,if0
 
+  ! Spectral Radius
+  logical          :: useSR = .FALSE.
+  DOUBLE PRECISION :: SRmax = 1D-8
+
   ! Sparse stoechiometry matrices and reaction rates
   character*10, allocatable      :: speciesList(:)
   integer                        :: nbSpecies, nbReac, nbPhotoReac,&
@@ -58,7 +62,7 @@ CONTAINS
     ! Transport
     DY = DY + ( gasFlux - advectionRate * yloc) / dx ! molec.cm^-3.s^-1
     !+ cd*(conc0-conc(1:))/dx**2/2
- 
+
     ! Back to scaled concentrations
     dy = dy / scaleFactor
 
@@ -82,11 +86,12 @@ CONTAINS
 
   END SUBROUTINE F_I
 
-  !DOUBLE PRECISION FUNCTION SR(NEQN,T,Y)
-  !  INTEGER, intent(in) :: NEQN
-  !  DOUBLE PRECISION, intent(in)  :: T, Y(NEQN)
-  !  SR = 4d0 / DX**2
-  !END FUNCTION SR
+  DOUBLE PRECISION FUNCTION SR(NEQN,T,Y)
+    INTEGER, intent(in) :: NEQN
+    DOUBLE PRECISION, intent(in)  :: T, Y(NEQN)
+    !SR = 4d0 / DX**2
+    SR = max(SRmax,5/DX)
+  END FUNCTION SR
 
   SUBROUTINE PHOTO_KINET_SPARSE(y,dy)
     DOUBLE PRECISION, intent(in)    :: y(:)

@@ -27,7 +27,7 @@ PROGRAM REACTOR
                                      totalPressure,  reactantsPressure,    &
                                      reactionTime,   beamIntensity,        &
                                      relativeError = 1D-4,                 &
-                                     absoluteError = 1D-2,                 &
+                                     absoluteError = 1D-4,                 &
                                      TEPS = 1D-10
 
   namelist /REAC_DATA/ runId, debug, ifRestart, nbSnapshots,&
@@ -42,7 +42,8 @@ PROGRAM REACTOR
                        totalPressure, reactantsPressure,&     ! Pa
                        reactionTime,&                         ! s
                        reactantsSpecies, reactantsComposition, &
-                       relativeError, absoluteError
+                       relativeError, absoluteError, &
+                       useSR, SRmax
 
 
   ! Integration parameters
@@ -109,7 +110,7 @@ PROGRAM REACTOR
   DO NEXT = 2, nbSnapshots
 
     if(debug) then
-      print *,'Step #',NEXT,'/',nbSnapShots,'++++++++++++++++'
+      print *,'Step #',NEXT,'/',nbSnapShots
       FLUSH(6) ! For graphical interface
     end if
 
@@ -120,7 +121,11 @@ PROGRAM REACTOR
                    ONE_STEP      = .FALSE.      , &
                    STOP_ON_ERROR = .TRUE. )
 
-    CALL IRKC(SOL,F_E,F_I)
+    if(useSR) then   
+      CALL IRKC(SOL,F_E,F_I,SR)
+    else
+      CALL IRKC(SOL,F_E,F_I)
+    endif 
 
     Y0 = SOL%Y
 
@@ -130,15 +135,19 @@ PROGRAM REACTOR
     ret = fsync(fnum(10))
     if (ret /= 0) stop "Error calling FSYNC on file 10"
 
-    !if(debug) CALL IRKC_STATS(SOL)
+    ! Integration stats
     WRITE(11,*) SOL%T, SOL%NFE, SOL%NFI, SOL%NSTEPS, SOL%NACCPT, &
-                SOL%NREJCT, SOL%NFESIG, SOL%MAXM
-
+                SOL%NREJCT, SOL%NFESIG, SOL%MAXM, SOL%SPRAD
     FLUSH(11) ! For graphical interface
     ret = fsync(fnum(11))
     if (ret /= 0) stop "Error calling FSYNC on file 11"
 
   END DO
+
+  if(debug) then
+      print *,'*** Done ***'
+      FLUSH(6) ! For graphical interface
+  end if
 
   CLOSE(10)
   CLOSE(11)
@@ -639,9 +648,6 @@ subroutine split(chain,nw,words)
   enddo
 
 end subroutine split
-
-
-
 
 
 !   ! Diffusion coefficients in N2 - ref: PhD Eric H. Wilson
