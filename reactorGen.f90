@@ -28,7 +28,8 @@ PROGRAM REACTOR
                                      reactionTime,   beamIntensity,        &
                                      relativeError = 1D-4,                 &
                                      absoluteError = 1D-4,                 &
-                                     TEPS = 1D-10
+                                     TEPS = 1D-10,                         &
+                                     wallFactor = 1D0
 
   namelist /REAC_DATA/ runId, debug, ifRestart, nbSnapshots,&
                        beamSpectrumFile,&
@@ -43,7 +44,8 @@ PROGRAM REACTOR
                        reactionTime,&                         ! s
                        reactantsSpecies, reactantsComposition, &
                        relativeError, absoluteError, &
-                       useSR, SRmax
+                       useSR, SRmax, &
+                       wallFactor
 
 
   ! Integration parameters
@@ -545,7 +547,7 @@ PROGRAM REACTOR
           kInf = c(6) * (T/T0)**c(7) * exp(-c(8)/T)
           F = c(9) * exp( c(10)*abs(1/T-1/T0) )
           kInf = kInf * F
-          k = troe(k0,kInf,P)
+          k = troe(k0,kInf,P) * wallFactor
           
         case ('assocMD')
           k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
@@ -559,7 +561,7 @@ PROGRAM REACTOR
           kR = kR * F
           Fc = c(16)
           F1 = exp(log(Fc) / (1 + (log(k0 * P + kInf) / 1.d0)**2))
-          k  = kInf * (k0 * P * F1 + kR) / (k0 * P + kInf)
+          k  = kInf * (k0 * P * F1 + kR) / (k0 * P + kInf) * wallFactor
           
         case ('assocVV') ! Different Kooij and Kassoc expressions
           kInf = c(1) * T**c(2) * exp(-c(3)/T)
@@ -573,7 +575,7 @@ PROGRAM REACTOR
           kR = kR * F
           Fc = c(16)
           if (kR >= 0.99 * kInf) then
-            k = kInf
+            k = kInf * wallFactor
           else
             Ci    = -0.4d0 - 0.67d0 * log10(Fc)
             Ni    = 0.75d0 - 1.27d0 * log10(Fc)
@@ -582,6 +584,7 @@ PROGRAM REACTOR
             lF1   = log10(Fc) / fExp
             kInf1 = kInf - kR
             k     = kR + (10.d0**lF1 * kInf1 * k0 * P) / (kInf1 + k0 * P)
+            k     = k * wallFactor
           end if
           
         case ('ionpol1')
