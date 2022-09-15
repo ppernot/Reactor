@@ -542,45 +542,50 @@ PROGRAM REACTOR
 
         case ('3-body')
           k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
-          F = c(4) * exp( c(5)*abs(1/T-1/T0) )
-          k0 = k0 * F
+          F    = c(4) * exp( c(5)*abs(1/T-1/T0) )
+          k0   = k0 * F
           kInf = c(6) * (T/T0)**c(7) * exp(-c(8)/T)
-          F = c(9) * exp( c(10)*abs(1/T-1/T0) )
+          F    = c(9) * exp( c(10)*abs(1/T-1/T0) )
           kInf = kInf * F
-          k = troe(k0,kInf,P) * wallFactor
+          k    = troe(k0,kInf,P) * wallFactor
           
         case ('assocMD')
           k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
-          F = c(4) * exp( c(5)*abs(1/T-1/T0) )
-          k0 = k0 * F
+          F    = c(4) * exp( c(5)*abs(1/T-1/T0) )
+          k0   = k0 * F
           kInf = c(6) * (T/T0)**c(7) * exp(-c(8)/T)
-          F = c(9) * exp( c(10)*abs(1/T-1/T0) )
+          F    = c(9) * exp( c(10)*abs(1/T-1/T0) )
           kInf = kInf * F
-          kR = c(11) * (T/T0)**c(12) * exp(-c(13)/T)
-          F = c(14) * exp( c(15)*abs(1/T-1/T0) )
-          kR = kR * F
-          Fc = c(16)
-          F1 = exp(log(Fc) / (1 + (log(k0 * P + kInf) / 1.d0)**2))
-          k  = kInf * (k0 * P * F1 + kR) / (k0 * P + kInf) * wallFactor
-          
+          kR   = c(11) * (T/T0)**c(12) * exp(-c(13)/T)
+          F    = c(14) * exp( c(15)*abs(1/T-1/T0) )
+          kR   = kR * F
+          Fc   = c(16)
+
+          Ni   = 0.75d0 - 1.27d0 * log10(Fc) ! approx. 1 for Fc=0.6 only...
+          fExp = 1.d0 + (log10(k0 * P / kInf) / Ni)**2
+          lF1  = log10(Fc) / fExp 
+          k    = kInf * (k0 * P * 10.d0**lF1 + kR) / (k0 * P + kInf) 
+          k    = k * wallFactor
+      
         case ('assocVV') ! Different Kooij and Kassoc expressions
           kInf = c(1) * T**c(2) * exp(-c(3)/T)
-          F = c(4) * exp( c(5)*abs(1/T-1/T0) )
-          k0 = k0 * F
-          kInf = c(6) * T**c(7) * exp(-c(8)/T)
-          F = c(9) * exp( c(10)*abs(1/T-1/T0) )
+          F    = c(4) * exp( c(5)*abs(1.d0/T-1.d0/T0) )
           kInf = kInf * F
-          kR = c(11) * T**c(12) * exp(-c(13)/T)
-          F = c(14) * exp( c(15)*abs(1/T-1/T0) )
-          kR = kR * F
-          Fc = c(16)
-          if (kR >= 0.99 * kInf) then
+          k0   = c(6) * T**c(7) * exp(-c(8)/T)
+          F    = c(9) * exp( c(10)*abs(1.d0/T-1.d0/T0) )
+          k0   = k0 * F
+          kR   = c(11) * T**c(12) * exp(-c(13)/T)
+          F    = c(14) * exp( c(15)*abs(1.d0/T-1.d0/T0) )
+          kR   = kR * F
+          Fc   = c(16)
+
+          if (kR >= 0.99d0 * kInf) then
             k = kInf * wallFactor
           else
             Ci    = -0.4d0 - 0.67d0 * log10(Fc)
             Ni    = 0.75d0 - 1.27d0 * log10(Fc)
             lPr   = log10(k0 * P / kInf)
-            fExp  = 1.d0 + ((lPr + Ci) / (Ni - 0.14 * (lPr + Ci)))**2
+            fExp  = 1.d0 + ((lPr + Ci) / (Ni - 0.14d0 * (lPr + Ci)))**2
             lF1   = log10(Fc) / fExp
             kInf1 = kInf - kR
             k     = kR + (10.d0**lF1 * kInf1 * k0 * P) / (kInf1 + k0 * P)
@@ -588,14 +593,14 @@ PROGRAM REACTOR
           end if
           
         case ('ionpol1')
-          k = c(1) * c(2) * (0.62D0 + 0.4767D0*c(3)*sqrt(T0/T))
-          F = c(4) * exp( c(5)*abs(1/T-1/T0) )
+          k = c(1) * c(2) * (0.62d0 + 0.4767d0*c(3)*sqrt(T0/T))
+          F = c(4) * exp( c(5) * abs(1.d0/T-1.d0/T0) )
           k = k * F
 
         case ('ionpol2')
-          k = c(1) * c(2) * (1 + 0.0967*c(3)*sqrt(T0/T) &
-                                  + c(3)*c(3) / 10.526 * T0/T   )
-          F = c(4) * exp( c(5)*abs(1/T-1/T0) )
+          k = c(1) * c(2) * (1.d0 + 0.0967d0*c(3)*sqrt(T0/T) &
+                                  + c(3)*c(3) / 10.526d0 * T0/T   )
+          F = c(4) * exp( c(5) * abs(1.d0/T-1.d0/T0) )
           k = k * F
 
       end select
@@ -617,9 +622,9 @@ PROGRAM REACTOR
         nE = 0.75D0 -1.27D0*lFc
         dE = 0.14D0
         c1 = log10(Pr) + cE
-        fE = 1 + (c1/(nE-dE*c1))**2
+        fE = 1.d0 + (c1/(nE-dE*c1))**2
 
-        k  = kInf * (Pr/(1+Pr)) * Fc**(1/fE)  
+        k  = kInf * (Pr/(1.d0+Pr)) * Fc**(1.d0/fE)  
 
     end function troe
 
