@@ -7,3 +7,7 @@
     
 ## 2022-06-29
 * Add a `wallFactor` parameter that applies to all trimolecular reactions
+
+## 2022-09-19
+* Corrected bugs in the expressions for association reaction rates
+

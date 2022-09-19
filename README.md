@@ -1,5 +1,9 @@
 # Mode d'emploi de `reactor`
 
+## Docker container (recommended)
+
+See. [ReactorUI](https://github.com/ppernot/ReactorUI)
+
 ## Compilation
 
 `gfortran -O3 irkc_m.f90 define_ivp.f90 reactorGen.f90  -o reactor`
