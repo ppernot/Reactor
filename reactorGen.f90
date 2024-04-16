@@ -461,7 +461,7 @@ PROGRAM REACTOR
             imax = 10
             tmp  = gasTemperature
 
-	  case ('assocVV','assocMD')
+          case ('assocVV','assocMD')
             imax = 16
             tmp  = gasTemperature
 
@@ -469,7 +469,7 @@ PROGRAM REACTOR
             imax = 5
             tmp  = electronsTemperature
 
-          case ('kooij','ionpol1','ionpol2')
+          case ('kooij','assoc0','ionpol1','ionpol2')
             imax = 5
             tmp  = gasTemperature
 
@@ -548,6 +548,12 @@ PROGRAM REACTOR
           F    = c(9) * exp( c(10)*abs(1/T-1/T0) )
           kInf = kInf * F
           k    = troe(k0,kInf,P) * wallFactor
+          
+        case ('assoc0')
+          k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
+          F    = c(4) * exp( c(5)*abs(1/T-1/T0) )
+          k0P  = k0 * F * P
+          k    = k0P * wallFactor
           
         case ('assocMD')
           k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
