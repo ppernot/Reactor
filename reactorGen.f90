@@ -193,7 +193,7 @@ PROGRAM REACTOR
       read(20,*) speciesCharge
       close(20)
       ! Molar masses
-!       speciesMass = speciesMass*1d-3 ! ?????????????????????????????????????????????????
+!       speciesMass = speciesMass*1d-3 ! ???????????????????????????
 
       ! Initial concentrations
       allocate(initialConcentrations(nbSpecies))
@@ -457,7 +457,7 @@ PROGRAM REACTOR
         ! Get parameters
         select case (type)
 
-          case ('3-body')
+          case ('3body')
             imax = 10
             tmp  = gasTemperature
 
@@ -535,26 +535,12 @@ PROGRAM REACTOR
       DOUBLE PRECISION, parameter    :: T0 = 300D0 ! Reference temp. for kooij expression
 
       select case (type)
+
         case ('kooij', 'dr')
           k = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
           F = c(4) * exp( c(5)*abs(1/T-1/T0) )
           k = k * F
 
-        case ('3-body')
-          k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
-          F    = c(4) * exp( c(5)*abs(1/T-1/T0) )
-          k0   = k0 * F
-          kInf = c(6) * (T/T0)**c(7) * exp(-c(8)/T)
-          F    = c(9) * exp( c(10)*abs(1/T-1/T0) )
-          kInf = kInf * F
-          k    = troe(k0,kInf,P) * wallFactor
-          
-        case ('assoc0')
-          k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
-          F    = c(4) * exp( c(5)*abs(1/T-1/T0) )
-          k0P  = k0 * F * P
-          k    = k0P * wallFactor
-          
         case ('assocMD')
           k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
           F    = c(4) * exp( c(5)*abs(1/T-1/T0) )
@@ -597,6 +583,21 @@ PROGRAM REACTOR
             k     = kR + (10.d0**lF1 * kInf1 * k0P) / (kInf1 + k0P)
             k     = k * wallFactor
           end if
+          
+        case ('assoctroe')
+          k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
+          F    = c(4) * exp( c(5)*abs(1/T-1/T0) )
+          k0   = k0 * F
+          kInf = c(6) * (T/T0)**c(7) * exp(-c(8)/T)
+          F    = c(9) * exp( c(10)*abs(1/T-1/T0) )
+          kInf = kInf * F
+          k    = troe(k0,kInf,P) * wallFactor
+          
+        case ('assoc0')
+          k0   = c(1) * (T/T0)**c(2) * exp(-c(3)/T)
+          F    = c(4) * exp( c(5)*abs(1/T-1/T0) )
+          k0P  = k0 * F * P
+          k    = k0P * wallFactor
           
         case ('ionpol1')
           k = c(1) * c(2) * (0.62d0 + 0.4767d0*c(3)*sqrt(T0/T))
